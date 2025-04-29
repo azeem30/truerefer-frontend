@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -9,9 +8,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import Image from "next/image"
-import { useRouter } from "next/navigation"
-import { toast } from "@/components/ui/use-toast" // Assuming you're using shadcn/ui toast
 import { AnimatedLogo } from "@/components/animated-logo"
 
 export default function SignupPage() {
@@ -20,11 +16,12 @@ export default function SignupPage() {
   const [password, setPassword] = useState("")
   const [role, setRole] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const router = useRouter()
+  const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
+    setMessage(null)
 
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/signup`, {
@@ -46,16 +43,11 @@ export default function SignupPage() {
         throw new Error(data.message || "Signup failed")
       }
 
-      toast({
-        title: "Success!",
-        description: "Please verify your account via email",
-        variant: "default",
-      })
+      setMessage({ text: "Please verify your account via email", type: "success" })
     } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "An unexpected error occurred",
-        variant: "destructive",
+      setMessage({
+        text: error instanceof Error ? error.message : "An unexpected error occurred",
+        type: "error",
       })
     } finally {
       setIsLoading(false)
@@ -126,6 +118,15 @@ export default function SignupPage() {
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? "Signing up..." : "Sign Up"}
             </Button>
+            {message && (
+              <div
+                className={`text-sm text-center ${
+                  message.type === "success" ? "text-green-600" : "text-red-600"
+                }`}
+              >
+                {message.text}
+              </div>
+            )}
           </form>
         </CardContent>
         <CardFooter className="flex flex-col space-y-4">
