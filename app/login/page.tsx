@@ -16,11 +16,13 @@ export default function LoginPage() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [errorMessage, setErrorMessage] = useState("")
   const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
+    setErrorMessage("") // Clear previous error message
 
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/login`, {
@@ -47,9 +49,11 @@ export default function LoginPage() {
 
       router.push("/home")
     } catch (error) {
+      const message = error instanceof Error ? error.message : "An unexpected error occurred"
+      setErrorMessage(message)
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "An unexpected error occurred",
+        description: message,
         variant: "destructive",
       })
     } finally {
@@ -115,11 +119,16 @@ export default function LoginPage() {
             <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? "Logging in..." : "Log in"}
             </Button>
+            {errorMessage && (
+              <div className="text-sm text-destructive text-center">
+                {errorMessage}
+              </div>
+            )}
           </form>
         </CardContent>
         <CardFooter className="flex justify-center">
           <div className="text-center text-sm">
-            Don&apos;t have an account?{" "}
+            Don't have an account?{" "}
             <Link href="/signup" className="font-medium text-primary underline-offset-4 hover:underline">
               Sign up
             </Link>
