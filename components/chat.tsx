@@ -1,5 +1,3 @@
-// components/chat.tsx
-
 "use client"
 
 import { useState, useRef, useEffect } from "react"
@@ -15,20 +13,19 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 
 interface Message {
-  id: number
+  id: number | null 
   sender_id: number
   receiver_id: number
   message: string
   timestamp: string
-  attachment_url: string
-  attachment_type: string
-  sender: {
+  attachment_url: string | null
+  sender?: {
     first_name: string
     middle_name: string | null
     last_name: string
     profile_picture: string | null
   }
-  receiver: {
+  receiver?: {
     first_name: string
     middle_name: string | null
     last_name: string
@@ -49,7 +46,7 @@ interface ChatUser {
 interface ChatProps {
   chatId: number
   onClose: () => void
-  currentUserId: number // Enforce number type
+  currentUserId: number
 }
 
 interface FirstMessageFormData {
@@ -81,31 +78,31 @@ export function Chat({ chatId, onClose, currentUserId }: ChatProps) {
   })
   const [attachment, setAttachment] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
   const user = typeof window !== "undefined" ? JSON.parse(localStorage.getItem("user") || "{}") : null
   const userType = user?.type
-
-  // Ensure currentUserId is a number
   const parsedCurrentUserId = Number(currentUserId)
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0]
       const validTypes = ['image/jpeg', 'image/png', 'application/pdf']
       const maxSize = 5 * 1024 * 1024 // 5MB
-      
+
       if (!validTypes.includes(file.type)) {
         alert('Please select a JPEG, PNG, or PDF file')
         return
       }
-      
+
       if (file.size > maxSize) {
         alert('File size should be less than 5MB')
         return
       }
-      
+
       setAttachment(file)
     }
   }
@@ -139,7 +136,7 @@ export function Chat({ chatId, onClose, currentUserId }: ChatProps) {
       })
       const data = await response.json()
       if (!response.ok) {
-        throw new Error("Failed to grant referral")
+        throw new Error(data.error || "Failed to grant referral")
       }
       const successMessage = `I've granted you a referral via ${option}. Your Referral ID is ${data?.referral_id}. Good luck with your application!`
       const msgResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/send_messages`, {
@@ -154,10 +151,10 @@ export function Chat({ chatId, onClose, currentUserId }: ChatProps) {
         }),
       })
 
-      if (msgResponse.ok) {
-        const newMsg = await msgResponse.json()
-        setMessages([...messages, newMsg])
+      if (!msgResponse.ok) {
+        throw new Error("Failed to send referral message")
       }
+
       alert(`Referral granted successfully via ${option}!`)
     } catch (error) {
       console.error("Error granting referral:", error)
@@ -168,68 +165,127 @@ export function Chat({ chatId, onClose, currentUserId }: ChatProps) {
     }
   }
 
-  useEffect(() => {
-    const fetchUserDetails = async () => {
+  // End chat session
+  const endChatSession = async () => {
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/end_chat_session`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          sender_id: parsedCurrentUserId,
+          receiver_id: chatId,
+        }),
+      })
+      if (!response.ok) {
+        throw new Error("Failed to end chat session")
+      }
+      // Optionally fetch messages again to ensure UI reflects flushed messages
+      await fetchMessages()
+    } catch (error) {
+      console.error("Error ending chat session:", error)
+      setError("Failed to save chat session. Messages may not be persisted.")
+    }
+  }
+
+  // Fetch user details and messages
+  const fetchUserDetails = async () => {
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/profile?id=${chatId}`)
+      if (!response.ok) {
+        throw new Error("Failed to fetch user details")
+      }
+      const data = await response.json()
+      setChatUser({
+        id: data.id,
+        first_name: data.first_name,
+        middle_name: data.middle_name,
+        last_name: data.last_name,
+        profile_picture: data.profile_picture,
+        designation: data.designation,
+        company: data.company,
+      })
+    } catch (error) {
+      console.error("Error fetching user details:", error)
+      setError("Failed to load user details.")
+    }
+
+    if (userType === "referrer" || userType === "moderator") {
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/profile?id=${chatId}`)
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/profile?id=${parsedCurrentUserId}`)
         if (!response.ok) {
-          throw new Error("Failed to fetch user details")
+          throw new Error("Failed to fetch referrer details")
         }
         const data = await response.json()
-        setChatUser({
+        setReferrer({
           id: data.id,
           first_name: data.first_name,
           middle_name: data.middle_name,
           last_name: data.last_name,
           profile_picture: data.profile_picture,
           designation: data.designation,
-          company: data.company
+          company: data.company,
         })
       } catch (error) {
-        console.error("Error fetching user details:", error)
-      }
-
-      if(userType === "referrer" || userType === "moderator") {
-        try {
-          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/profile?id=${parsedCurrentUserId}`)
-          if (!response.ok) {
-            throw new Error("Failed to fetch referrer details")
-          }
-          const data = await response.json()
-          setReferrer({
-            id: data.id,
-            first_name: data.first_name,
-            middle_name: data.middle_name,
-            last_name: data.last_name,
-            profile_picture: data.profile_picture,
-            designation: data.designation,
-            company: data.company
-          })
-        } catch (error) {
-          console.error("Error fetching referrer details:", error)
-        }
+        console.error("Error fetching referrer details:", error)
+        setError("Failed to load referrer details.")
       }
     }
+  }
 
-    const fetchMessages = async () => {
-      try {
-        const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/messages?sender_id=${parsedCurrentUserId}&receiver_id=${chatId}`
-        )
-        if (!response.ok) {
-          throw new Error("Failed to fetch messages")
-        }
-        const data = await response.json()
-        setMessages(data)
-      } catch (error) {
-        console.error("Error fetching messages:", error)
-      } finally {
-        setLoading(false)
+  const fetchMessages = async () => {
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/messages?sender_id=${parsedCurrentUserId}&receiver_id=${chatId}`
+      )
+      if (!response.ok) {
+        throw new Error("Failed to fetch messages")
       }
+      const data = await response.json()
+      setMessages(data.map((msg: Message) => ({
+        ...msg,
+        sender_id: Number(msg.sender_id),
+        receiver_id: Number(msg.receiver_id), 
+      })))
+    } catch (error) {
+      console.error("Error fetching messages:", error)
+      setError("Failed to load messages.")
     }
+  }
 
+  // Polling for new messages
+  useEffect(() => {
     fetchUserDetails()
     fetchMessages()
+
+    // Start polling every 5 seconds
+    pollingIntervalRef.current = setInterval(() => {
+      fetchMessages()
+    }, 5000)
+
+    // Cleanup on component unmount
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current)
+      }
+      // End chat session when component unmounts (e.g., user navigates away)
+      endChatSession()
+    }
+  }, [chatId, parsedCurrentUserId])
+
+  useEffect(() => {
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === "user" && event.newValue === null) {
+        endChatSession()
+      }
+    }
+  
+    window.addEventListener("storage", handleStorageChange)
+  
+    return () => {
+      window.removeEventListener("storage", handleStorageChange)
+    }
   }, [chatId, parsedCurrentUserId])
 
   useEffect(() => {
@@ -242,9 +298,9 @@ export function Chat({ chatId, onClose, currentUserId }: ChatProps) {
 
   const handleFirstMessageFormChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
-    setFirstMessageFormData(prev => ({
+    setFirstMessageFormData((prev) => ({
       ...prev,
-      [name]: value
+      [name]: value,
     }))
   }
 
@@ -273,7 +329,7 @@ export function Chat({ chatId, onClose, currentUserId }: ChatProps) {
         body: JSON.stringify({
           sender_id: parsedCurrentUserId,
           receiver_id: chatId,
-          message: messageText
+          message: messageText,
         }),
       })
 
@@ -281,8 +337,6 @@ export function Chat({ chatId, onClose, currentUserId }: ChatProps) {
         throw new Error("Failed to send message")
       }
 
-      const newMsg = await response.json()
-      setMessages([...messages, newMsg])
       setFirstMessageFormData({
         firstName: "",
         lastName: "",
@@ -290,20 +344,45 @@ export function Chat({ chatId, onClose, currentUserId }: ChatProps) {
         university: "",
         jobId: "",
         experience: "",
-        email: ""
+        email: "",
       })
+      // Fetch messages to include the new one (cached in Redis)
+      await fetchMessages()
     } catch (error) {
       console.error("Error sending message:", error)
+      alert("Failed to send message. Please try again.")
     }
   }
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
     if (!newMessage.trim() && !attachment) return
     setIsUploading(true)
-
+    const tempMessage: Message = {
+      id: null,
+      sender_id: parsedCurrentUserId,
+      receiver_id: chatId,
+      message: newMessage.trim() || "",
+      timestamp: new Date().toISOString(),
+      attachment_url: attachment ? "uploading..." : null,
+      sender: user ? {
+        first_name: user.first_name || "You",
+        middle_name: user.middle_name || null,
+        last_name: user.last_name || "",
+        profile_picture: user.profile_picture || null,
+      } : undefined,
+      receiver: chatUser ? {
+        first_name: chatUser.first_name,
+        middle_name: chatUser.middle_name,
+        last_name: chatUser.last_name,
+        profile_picture: chatUser.profile_picture,
+      } : undefined,
+    }
     try {
+      setMessages((prev) => [...prev, tempMessage])
+      setNewMessage("")
+
       const formData = new FormData()
       formData.append('sender_id', parsedCurrentUserId.toString())
       formData.append('receiver_id', chatId.toString())
@@ -322,13 +401,12 @@ export function Chat({ chatId, onClose, currentUserId }: ChatProps) {
       if (!response.ok) {
         throw new Error("Failed to send message")
       }
-
-      const newMsg = await response.json()
-      setMessages([...messages, newMsg])
-      setNewMessage("")
       removeAttachment()
+      // Fetch messages to include the new one (cached in Redis)
+      await fetchMessages()
     } catch (error) {
       console.error("Error sending message:", error)
+      setMessages((prev) => prev.filter((msg) => msg.id !== null || msg.timestamp !== tempMessage.timestamp))
       alert("Failed to send message. Please try again.")
     } finally {
       setIsUploading(false)
@@ -341,29 +419,27 @@ export function Chat({ chatId, onClose, currentUserId }: ChatProps) {
 
   const formatMessageTime = (timestamp: string): string => {
     try {
-      const date = new Date(timestamp);
-  
+      const date = new Date(timestamp)
       if (isNaN(date.getTime())) {
-        return timestamp;
+        return timestamp
       }
-  
       return date.toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
         hour12: true,
-      });
+      })
     } catch {
-      const timePart = timestamp.split('T')[1]?.split('.')[0]?.substring(0, 5);
-      return timePart || timestamp;
+      const timePart = timestamp.split('T')[1]?.split('.')[0]?.substring(0, 5)
+      return timePart || timestamp
     }
-  };
+  }
 
-  const getFileIcon = (url: string) => {
-    if (url.match(/\.(jpeg|jpg|png|gif)$/i)) {
-      return <ImageIcon className="h-4 w-4" />;
+  const getFileIcon = (url: string | null) => {
+    if (url?.match(/\.(jpeg|jpg|png|gif)$/i)) {
+      return <ImageIcon className="h-4 w-4" />
     }
-    return <FileText className="h-4 w-4" />;
-  };
+    return <FileText className="h-4 w-4" />
+  }
 
   const isFirstConversation = messages.length === 0
 
@@ -395,8 +471,10 @@ export function Chat({ chatId, onClose, currentUserId }: ChatProps) {
       <CardHeader className="px-4 py-3 flex flex-row items-center justify-between border-b bg-muted/30">
         <div className="flex items-center gap-3 cursor-pointer" onClick={handleViewProfile}>
           <Avatar className="h-10 w-10 border-2 border-primary/20">
-            <AvatarImage src={getDropboxUrl(chatUser.profile_picture || "") || "/placeholder.svg"} 
-              alt={`${chatUser.first_name} ${chatUser.last_name}`} />
+            <AvatarImage
+              src={getDropboxUrl(chatUser.profile_picture || "") || "/placeholder.svg"}
+              alt={`${chatUser.first_name} ${chatUser.last_name}`}
+            />
           </Avatar>
           <div>
             <h3 className="font-medium">
@@ -408,12 +486,24 @@ export function Chat({ chatId, onClose, currentUserId }: ChatProps) {
             </p>
           </div>
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose} className="md:hidden">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={async () => {
+            await endChatSession()
+            onClose()
+          }}
+        >
           <X className="h-4 w-4" />
           <span className="sr-only">Close</span>
         </Button>
       </CardHeader>
       <CardContent className="flex-1 p-0 overflow-hidden flex flex-col">
+        {error && (
+          <div className="bg-red-100 text-red-700 p-2 text-sm text-center">
+            {error}
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.length === 0 ? (
             <div className="flex items-center justify-center h-full">
@@ -425,14 +515,14 @@ export function Chat({ chatId, onClose, currentUserId }: ChatProps) {
               </div>
             </div>
           ) : (
-            messages.map((message) => (
+            messages.map((message, index) => (
               <div
-                key={message.id}
-                className={`flex ${message.sender_id === parsedCurrentUserId ? "justify-end" : "justify-start"}`}
+                key={message.id || `cached-${index}`} // Use index for cached messages
+                className={`flex ${message.sender_id == parsedCurrentUserId ? "justify-end" : "justify-start"}`}
               >
                 <div
                   className={`max-w-[80%] rounded-lg px-4 py-2 shadow-sm ${
-                    message.sender_id === parsedCurrentUserId
+                    message.sender_id == parsedCurrentUserId
                       ? "bg-primary text-primary-foreground"
                       : "bg-muted dark:bg-secondary"
                   }`}
@@ -440,13 +530,13 @@ export function Chat({ chatId, onClose, currentUserId }: ChatProps) {
                   {message.message && <p>{message.message}</p>}
                   {message.attachment_url && (
                     <div className={`mt-1 ${message.message ? 'mt-2' : ''}`}>
-                      <a 
-                        href={message.attachment_url} 
-                        target="_blank" 
+                      <a
+                        href={message.attachment_url}
+                        target="_blank"
                         rel="noopener noreferrer"
                         className={`flex items-center gap-1 text-sm ${
-                          message.sender_id === parsedCurrentUserId 
-                            ? 'text-primary-foreground/80 hover:text-primary-foreground' 
+                          message.sender_id == parsedCurrentUserId
+                            ? 'text-primary-foreground/80 hover:text-primary-foreground'
                             : 'text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300'
                         }`}
                       >
@@ -457,10 +547,11 @@ export function Chat({ chatId, onClose, currentUserId }: ChatProps) {
                   )}
                   <p
                     className={`text-xs mt-1 ${
-                      message.sender_id === parsedCurrentUserId ? "text-primary-foreground/70" : "text-muted-foreground"
+                      message.sender_id == parsedCurrentUserId ? "text-primary-foreground/70" : "text-muted-foreground"
                     }`}
                   >
                     {formatMessageTime(message.timestamp)}
+                    {message.id === null && message.sender_id == parsedCurrentUserId && " Sent"}
                   </p>
                 </div>
               </div>
@@ -579,9 +670,7 @@ export function Chat({ chatId, onClose, currentUserId }: ChatProps) {
 
                 <div className="border rounded-lg p-3 bg-background shadow-sm">
                   <div className="text-sm font-medium mb-2 text-primary">Preview:</div>
-                  <p className="text-sm">
-                    {constructFirstMessage()}
-                  </p>
+                  <p className="text-sm">{constructFirstMessage()}</p>
                 </div>
 
                 <div className="flex justify-end">
@@ -602,10 +691,10 @@ export function Chat({ chatId, onClose, currentUserId }: ChatProps) {
                 className="hidden"
               />
               <form onSubmit={handleSendMessage} className="flex gap-2">
-                <Button 
-                  type="button" 
-                  variant="ghost" 
-                  size="icon" 
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
                   className="shrink-0 bg-primary hover:bg-primary/90"
                   onClick={handleAttachClick}
                 >
