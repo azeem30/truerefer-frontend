@@ -319,6 +319,26 @@ export function Chat({ chatId, onClose, currentUserId }: ChatProps) {
     }
 
     const messageText = constructFirstMessage()
+    const tempMessage = {
+      id: null,
+      sender_id: parsedCurrentUserId,
+      receiver_id: chatId,
+      message: messageText,
+      timestamp: new Date().toISOString(),
+      attachment_url: null,
+      sender: user ? {
+        first_name: user.first_name || "You",
+        middle_name: user.middle_name || null,
+        last_name: user.last_name || "",
+        profile_picture: user.profile_picture || null,
+      } : undefined,
+      receiver: chatUser ? {
+        first_name: chatUser.first_name,
+        middle_name: chatUser.middle_name,
+        last_name: chatUser.last_name,
+        profile_picture: chatUser.profile_picture,
+      } : undefined,
+    }
 
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/send_messages`, {
@@ -346,7 +366,7 @@ export function Chat({ chatId, onClose, currentUserId }: ChatProps) {
         experience: "",
         email: "",
       })
-      // Fetch messages to include the new one (cached in Redis)
+      setMessages((prev) => [...prev, tempMessage])
       await fetchMessages()
     } catch (error) {
       console.error("Error sending message:", error)
